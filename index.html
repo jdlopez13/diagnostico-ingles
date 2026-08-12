@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diagnóstico de Inglés Básico</title>
+  <style>
+    :root { --ink:#1e293b; --blue:#2563eb; --blue-soft:#eff6ff; --line:#cbd5e1; --muted:#64748b; --danger:#b91c1c; --ok:#166534; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f8fafc; color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { max-width:920px; margin:0 auto; padding:32px 18px 56px; }
+    h1 { margin:0 0 6px; font-size:clamp(1.75rem,4vw,2.4rem); }
+    h2 { margin:0; font-size:1.2rem; }
+    .intro, .notice { color:var(--muted); margin:0 0 24px; }
+    .notice { background:#fffbeb; border-left:4px solid #f59e0b; padding:12px 14px; border-radius:4px; }
+    .student-data, .block { background:white; border:1px solid var(--line); border-radius:12px; padding:22px; margin-bottom:20px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+    .student-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    label { display:block; font-weight:650; margin-bottom:6px; }
+    input, textarea { width:100%; border:1px solid #94a3b8; border-radius:7px; padding:10px 11px; font:inherit; color:var(--ink); background:white; }
+    input:focus, textarea:focus { outline:3px solid #bfdbfe; border-color:var(--blue); }
+    textarea { min-height:100px; resize:vertical; }
+    .block-header { display:flex; justify-content:space-between; gap:12px; align-items:baseline; border-bottom:1px solid #e2e8f0; padding-bottom:10px; margin-bottom:4px; }
+    .badge { background:var(--blue-soft); color:#1d4ed8; padding:3px 8px; border-radius:999px; font-size:.82rem; white-space:nowrap; }
+    .question { padding:17px 0; border-bottom:1px solid #e2e8f0; }
+    .question:last-child { border-bottom:0; padding-bottom:0; }
+    .question p { margin:0 0 9px; }
+    .question-number { color:var(--blue); font-weight:750; }
+    .kind { color:var(--muted); font-size:.9rem; }
+    .manual { color:#92400e; font-size:.88rem; margin:7px 0 0; }
+    button { width:100%; border:0; border-radius:8px; padding:13px 18px; background:var(--blue); color:white; font:700 1rem system-ui,sans-serif; cursor:pointer; }
+    button:hover { background:#1d4ed8; }
+    button:disabled { opacity:.65; cursor:wait; }
+    #status { display:none; margin-top:16px; padding:13px 14px; border-radius:8px; font-weight:600; }
+    #status.success { display:block; background:#dcfce7; color:var(--ok); }
+    #status.error { display:block; background:#fee2e2; color:var(--danger); }
+    @media (max-width:640px) { main { padding-top:24px; } .student-grid { grid-template-columns:1fr; } .block-header { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Diagnóstico de Inglés Básico</h1>
+    <p class="intro">Responda las 30 preguntas. Las preguntas de completar y corregir se califican automáticamente. Las preguntas de escritura quedan disponibles para revisión del facilitador.</p>
+    <p class="notice">Si deja una respuesta en blanco, se registrará como incorrecta. En las preguntas de escritura, una respuesta completa quedará pendiente de revisión manual.</p>
+
+    <form id="diagnostic-form" novalidate>
+      <section class="student-data" aria-labelledby="student-heading">
+        <h2 id="student-heading">Datos del estudiante</h2>
+        <div class="student-grid">
+          <div>
+            <label for="nombre_estudiante">Nombre completo</label>
+            <input id="nombre_estudiante" name="nombre_estudiante" autocomplete="name" required>
+          </div>
+          <div>
+            <label for="cohorte">Cohorte o grupo</label>
+            <input id="cohorte" name="cohorte" placeholder="Ej.: A1 - Grupo 1" required>
+          </div>
+        </div>
+      </section>
+      <div id="questions"></div>
+      <button id="submit-button" type="submit">Enviar diagnóstico</button>
+      <div id="status" role="status" aria-live="polite"></div>
+    </form>
+  </main>
+
+  <script>
+    // Reemplace estos dos valores por los datos de Settings > API de su proyecto Supabase.
+    const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
+    const SUPABASE_ANON_KEY = 'TU_SUPABASE_ANON_KEY';
+    const TABLE_NAME = 'respuestas_diagnostico';
+
+    // Las 30 preguntas originales y su mapeo: tres preguntas por indicador.
+    const questions = [
+      { n:1, indicator:'to_be', title:'Complete the sentence.', prompt:'My sister ___ a university student.', type:'input', answers:['is'], placeholder:'Write one word' },
+      { n:2, indicator:'to_be', title:'Correct the mistake.', prompt:'They is from Colombia.', type:'input', answers:['they are from colombia'], placeholder:'Write the corrected sentence' },
+      { n:3, indicator:'to_be', title:'Write about yourself.', prompt:'Write two sentences about yourself using am, is or are.', type:'textarea', placeholder:'Write your answer' },
+
+      { n:4, indicator:'have_has', title:'Complete the sentence.', prompt:'She ___ two brothers.', type:'input', answers:['has'], placeholder:'Write one word' },
+      { n:5, indicator:'have_has', title:'Correct the mistake.', prompt:'My parents has a small house.', type:'input', answers:['my parents have a small house'], placeholder:'Write the corrected sentence' },
+      { n:6, indicator:'have_has', title:'Write about your family.', prompt:'Write two sentences using have or has.', type:'textarea', placeholder:'Write your answer' },
+
+      { n:7, indicator:'present_simple', title:'Complete the sentence.', prompt:'Maria ___ (work) in a hospital.', type:'input', answers:['works'], placeholder:'Write one word' },
+      { n:8, indicator:'present_simple', title:'Correct the mistake.', prompt:"He don't like coffee.", type:'input', answers:["he doesn't like coffee",'he does not like coffee'], placeholder:'Write the corrected sentence' },
+      { n:9, indicator:'present_simple', title:'Write about your daily routine.', prompt:'Write three sentences about your daily routine using the Present Simple.', type:'textarea', placeholder:'Write your answer' },
+
+      { n:10, indicator:'frequency_adverbs', title:'Put the words in the correct order.', prompt:'usually / I / breakfast / have / at 7:00', type:'input', answers:['i usually have breakfast at 7:00'], placeholder:'Write the complete sentence' },
+      { n:11, indicator:'frequency_adverbs', title:'Correct the mistake.', prompt:'She goes always to the gym on Mondays.', type:'input', answers:['she always goes to the gym on mondays'], placeholder:'Write the corrected sentence' },
+      { n:12, indicator:'frequency_adverbs', title:'Write two sentences.', prompt:'Write two sentences about things you always, usually, sometimes or never do.', type:'textarea', placeholder:'Write your answer' },
+
+      { n:13, indicator:'present_continuous', title:'Complete the sentence.', prompt:'Look! The children ___ (play) in the park.', type:'input', answers:['are playing'], placeholder:'Write the missing words' },
+      { n:14, indicator:'present_continuous', title:'Correct the mistake.', prompt:'I am study English right now.', type:'input', answers:['i am studying english right now'], placeholder:'Write the corrected sentence' },
+      { n:15, indicator:'present_continuous', title:'Describe what is happening now.', prompt:'Write two sentences about what you or another person is doing right now.', type:'textarea', placeholder:'Write your answer' },
+
+      { n:16, indicator:'there_prepositions', title:'Complete the sentence.', prompt:'___ two chairs next to the table.', type:'input', answers:['there are'], placeholder:'Write the missing words' },
+      { n:17, indicator:'there_prepositions', title:'Correct the mistake.', prompt:'The books are in the table.', type:'input', answers:['the books are on the table'], placeholder:'Write the corrected sentence' },
+      { n:18, indicator:'there_prepositions', title:'Describe a room.', prompt:'Write three sentences describing a room. Use there is/there are and at least two prepositions of place.', type:'textarea', placeholder:'Write your answer' },
+
+      { n:19, indicator:'can_cant', title:'Complete the sentence.', prompt:"I ___ swim, but I can't drive.", type:'input', answers:['can'], placeholder:'Write one word' },
+      { n:20, indicator:'can_cant', title:'Correct the mistake.', prompt:'She can to speak English.', type:'input', answers:['she can speak english'], placeholder:'Write the corrected sentence' },
+      { n:21, indicator:'can_cant', title:'Write three sentences.', prompt:"Write three things you can or can't do.", type:'textarea', placeholder:'Write your answer' },
+
+      { n:22, indicator:'past_simple', title:'Complete the sentence.', prompt:'Yesterday, I ___ (go) to the supermarket.', type:'input', answers:['went'], placeholder:'Write one word' },
+      { n:23, indicator:'past_simple', title:'Correct the mistake.', prompt:"She didn't went to class yesterday.", type:'input', answers:["she didn't go to class yesterday",'she did not go to class yesterday'], placeholder:'Write the corrected sentence' },
+      { n:24, indicator:'past_simple', title:'Write about yesterday.', prompt:'Write three sentences about what you did yesterday.', type:'textarea', placeholder:'Write your answer' },
+
+      { n:25, indicator:'comparatives', title:'Complete the sentence.', prompt:"My car is ___ (fast) than my brother's car.", type:'input', answers:['faster'], placeholder:'Write one word' },
+      { n:26, indicator:'comparatives', title:'Correct the mistake.', prompt:'This is the more expensive restaurant in town.', type:'input', answers:['this is the most expensive restaurant in town'], placeholder:'Write the corrected sentence' },
+      { n:27, indicator:'comparatives', title:'Write two comparisons.', prompt:'Compare two people, places or objects. Use a comparative and a superlative.', type:'textarea', placeholder:'Write your answer' },
+
+      { n:28, indicator:'future', title:'Complete the sentence.', prompt:'I ___ going to study English tonight.', type:'input', answers:['am'], placeholder:'Write one word' },
+      { n:29, indicator:'future', title:'Correct the mistake.', prompt:'She will to travel next year.', type:'input', answers:['she will travel next year'], placeholder:'Write the corrected sentence' },
+      { n:30, indicator:'future', title:'Write about your plans.', prompt:'Write two sentences about your future plans using be going to or will.', type:'textarea', placeholder:'Write your answer' }
+    ];
+
+    const indicatorNames = {
+      to_be:'Verb to be', have_has:'Have / Has', present_simple:'Present Simple',
+      frequency_adverbs:'Adverbs of Frequency', present_continuous:'Present Continuous',
+      there_prepositions:'There is / There are + Prepositions', can_cant:"Can / Can't",
+      past_simple:'Past Simple', comparatives:'Comparatives / Superlatives', future:'Future Forms'
+    };
+
+    function normalise(value) {
+      return value.toLowerCase().trim()
+        .replace(/[¿?¡!.,;:]/g, '')
+        .replace(/[‘’]/g, "'")
+        .replace(/\s+/g, ' ');
+    }
+
+    function renderQuestions() {
+      const container = document.getElementById('questions');
+      Object.keys(indicatorNames).forEach((indicator) => {
+        const blockQuestions = questions.filter((question) => question.indicator === indicator);
+        const section = document.createElement('section');
+        section.className = 'block';
+        section.innerHTML = `<div class="block-header"><h2>${indicatorNames[indicator]}</h2><span class="badge">Indicador: ${indicator}</span></div>`;
+        blockQuestions.forEach((question) => {
+          const item = document.createElement('div');
+          item.className = 'question';
+          const field = question.type === 'textarea'
+            ? `<textarea id="q${question.n}" name="q${question.n}" placeholder="${question.placeholder}"></textarea><p class="manual">Esta respuesta será revisada manualmente.</p>`
+            : `<input id="q${question.n}" name="q${question.n}" placeholder="${question.placeholder}">`;
+          item.innerHTML = `<p><span class="question-number">${question.n}.</span> <span class="kind">${question.title}</span></p><p>${question.prompt}</p>${field}`;
+          section.appendChild(item);
+        });
+        container.appendChild(section);
+      });
+    }
+
+    function automaticResult(question, response) {
+      if (question.type === 'textarea') return null;
+      const normalisedResponse = normalise(response);
+      return normalisedResponse !== '' && question.answers.some((answer) => normalisedResponse === normalise(answer));
+    }
+
+    function calculatePayload() {
+      const answerRecords = {};
+      const scores = {};
+      const manualReview = [];
+
+      questions.forEach((question) => {
+        const response = document.getElementById(`q${question.n}`).value.trim();
+        const correct = automaticResult(question, response);
+        const manual = question.type === 'textarea';
+        const manualStatus = manual ? (response ? 'pendiente_revision' : 'incorrecta_incompleta') : 'no_aplica';
+        answerRecords[`pregunta_${question.n}`] = {
+          numero: question.n,
+          indicador: question.indicator,
+          enunciado: question.prompt,
+          respuesta: response,
+          correccion_automatica: manual ? null : correct,
+          requiere_revision_manual: manual,
+          estado_revision_manual: manualStatus
+        };
+        if (manual) manualReview.push({ pregunta:question.n, indicador:question.indicator, estado:manualStatus });
+      });
+
+      Object.keys(indicatorNames).forEach((indicator) => {
+        const automaticQuestions = questions.filter((question) => question.indicator === indicator && question.type !== 'textarea');
+        const correctCount = automaticQuestions.filter((question) => answerRecords[`pregunta_${question.n}`].correccion_automatica).length;
+        scores[indicator] = (correctCount / automaticQuestions.length) * 100;
+      });
+
+      const name = document.getElementById('nombre_estudiante').value.trim();
+      const cohort = document.getElementById('cohorte').value.trim();
+      return {
+        nombre_estudiante: name,
+        cohorte: cohort,
+        ...scores,
+        respuestas_crudas: {
+          version_instrumento: 'MVP-1',
+          fecha_hora_cliente: new Date().toISOString(),
+          nota_calificacion: 'Cada porcentaje corresponde inicialmente a las dos preguntas corregibles automáticamente del indicador. La respuesta de producción queda pendiente de revisión manual.',
+          mapa_pregunta_indicador: Object.fromEntries(questions.map((question) => [`pregunta_${question.n}`, question.indicator])),
+          respuestas: answerRecords,
+          revision_manual: manualReview
+        }
+      };
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = type;
+    }
+
+    document.getElementById('diagnostic-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const name = document.getElementById('nombre_estudiante').value.trim();
+      const cohort = document.getElementById('cohorte').value.trim();
+      if (!name || !cohort) {
+        showStatus('Escriba el nombre completo y la cohorte antes de enviar.', 'error');
+        return;
+      }
+      if (SUPABASE_URL.includes('TU-PROYECTO') || SUPABASE_ANON_KEY.includes('TU_SUPABASE')) {
+        showStatus('Antes de usar el formulario, reemplace la URL y la anon key de Supabase en este archivo.', 'error');
+        return;
+      }
+
+      const button = document.getElementById('submit-button');
+      button.disabled = true;
+      button.textContent = 'Enviando…';
+      try {
+        const response = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${TABLE_NAME}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_ANON_KEY,
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify(calculatePayload())
+        });
+        if (!response.ok) throw new Error(await response.text());
+        document.getElementById('diagnostic-form').reset();
+        showStatus('Diagnóstico guardado correctamente. Gracias.', 'success');
+        window.scrollTo({ top:0, behavior:'smooth' });
+      } catch (error) {
+        console.error(error);
+        showStatus('No se pudo guardar el diagnóstico. Revise la URL, la anon key y las políticas de Supabase.', 'error');
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Enviar diagnóstico';
+      }
+    });
+
+    renderQuestions();
+  </script>
+</body>
+</html>

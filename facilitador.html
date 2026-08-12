@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel del facilitador · Inglés Básico</title>
+  <style>
+    :root { --ink:#1e293b; --blue:#2563eb; --line:#cbd5e1; --muted:#64748b; --green:#166534; --amber:#92400e; --red:#b91c1c; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:#f8fafc; font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { max-width:1280px; margin:0 auto; padding:32px 18px 56px; }
+    h1 { margin:0 0 5px; font-size:clamp(1.75rem,4vw,2.4rem); }
+    h2 { margin:0; font-size:1.25rem; }
+    h3 { margin:0; font-size:1.05rem; }
+    .subtitle, .muted { margin:0; color:var(--muted); }
+    .top { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:24px; }
+    button { border:0; background:var(--blue); color:white; font:700 .95rem system-ui,sans-serif; padding:10px 14px; border-radius:8px; cursor:pointer; white-space:nowrap; }
+    button:hover { background:#1d4ed8; }
+    button:disabled { opacity:.65; cursor:wait; }
+    #message { display:none; margin:0 0 20px; padding:12px 14px; border-radius:8px; }
+    #message.show { display:block; background:#fef3c7; color:#78350f; }
+    #message.error { display:block; background:#fee2e2; color:var(--red); }
+    #decision { display:none; margin:0 0 20px; padding:15px; background:#eff6ff; border-left:4px solid var(--blue); border-radius:5px; }
+    .summary-grid { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:12px; margin:16px 0 32px; }
+    .metric { background:white; border:1px solid var(--line); border-radius:10px; padding:15px; min-height:136px; }
+    .metric .name { margin:0 0 10px; color:var(--muted); font-size:.86rem; min-height:40px; }
+    .metric .percentage { margin:0; font-size:1.8rem; font-weight:800; }
+    .level { display:inline-block; margin-top:6px; padding:2px 8px; border-radius:99px; font-size:.83rem; font-weight:700; }
+    .level.consolidado { background:#dcfce7; color:var(--green); }
+    .level.desarrollo { background:#fef3c7; color:var(--amber); }
+    .level.inicial { background:#fee2e2; color:var(--red); }
+    #responses { display:grid; gap:16px; margin-top:16px; }
+    .response { background:white; border:1px solid var(--line); border-radius:11px; padding:20px; }
+    .response-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:16px; }
+    .response-head p { margin:3px 0 0; color:var(--muted); }
+    table { width:100%; border-collapse:collapse; font-size:.92rem; }
+    th, td { padding:9px 8px; text-align:left; border-bottom:1px solid #e2e8f0; vertical-align:top; }
+    th { color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.02em; }
+    details { margin-top:16px; border-top:1px solid #e2e8f0; padding-top:12px; }
+    summary { color:#1d4ed8; cursor:pointer; font-weight:700; }
+    .answer-list { list-style:none; margin:12px 0 0; padding:0; display:grid; gap:8px; }
+    .answer { padding:10px; border-radius:7px; background:#f8fafc; border:1px solid #e2e8f0; }
+    .answer p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .answer small { display:block; color:var(--muted); margin-bottom:4px; }
+    .manual-pending { color:var(--amber); font-weight:700; }
+    .empty { background:white; border:1px dashed:#94a3b8; border-radius:9px; padding:24px; color:var(--muted); }
+    @media (max-width:1000px) { .summary-grid { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
+    @media (max-width:640px) { main { padding-top:24px; } .top, .response-head { flex-direction:column; } .summary-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } table { font-size:.8rem; } th, td { padding:7px 4px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="top">
+      <div>
+        <h1>Panel del facilitador</h1>
+        <p class="subtitle">Resultados automáticos por indicador y respuestas para revisión manual.</p>
+      </div>
+      <button id="refresh" type="button">Actualizar datos</button>
+    </div>
+
+    <div id="message" role="status" aria-live="polite"></div>
+    <section id="decision" aria-live="polite"></section>
+    <section aria-labelledby="summary-heading">
+      <h2 id="summary-heading">Promedio por indicador</h2>
+      <p class="muted">Cada porcentaje inicial se calcula con las dos preguntas objetivas del bloque. La tercera respuesta requiere revisión manual.</p>
+      <div id="summary" class="summary-grid"></div>
+    </section>
+    <section aria-labelledby="responses-heading">
+      <h2 id="responses-heading">Respuestas de estudiantes</h2>
+      <div id="responses"></div>
+    </section>
+  </main>
+
+  <script>
+    // Use exactamente los mismos datos de Settings > API que en index.html.
+    const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
+    const SUPABASE_ANON_KEY = 'TU_SUPABASE_ANON_KEY';
+    const TABLE_NAME = 'respuestas_diagnostico';
+
+    const indicators = [
+      ['to_be', 'Verb to be'], ['have_has', 'Have / Has'], ['present_simple', 'Present Simple'],
+      ['frequency_adverbs', 'Adverbs of Frequency'], ['present_continuous', 'Present Continuous'],
+      ['there_prepositions', 'There is / There are + Prepositions'], ['can_cant', "Can / Can't"],
+      ['past_simple', 'Past Simple'], ['comparatives', 'Comparatives / Superlatives'], ['future', 'Future Forms']
+    ];
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, (character) => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;'
+      }[character]));
+    }
+
+    function levelFor(value) {
+      if (value >= 80) return { name:'Consolidado', css:'consolidado' };
+      if (value >= 50) return { name:'En desarrollo', css:'desarrollo' };
+      return { name:'Inicial', css:'inicial' };
+    }
+
+    function formatDate(value) {
+      return new Intl.DateTimeFormat('es-CO', { dateStyle:'medium', timeStyle:'short' }).format(new Date(value));
+    }
+
+    function showMessage(text, type = 'show') {
+      const message = document.getElementById('message');
+      message.textContent = text;
+      message.className = type;
+    }
+
+    function renderSummary(rows) {
+      const summary = document.getElementById('summary');
+      const decision = document.getElementById('decision');
+      summary.innerHTML = '';
+      if (!rows.length) {
+        summary.innerHTML = '<div class="empty">Aún no hay diagnósticos guardados.</div>';
+        decision.style.display = 'none';
+        return;
+      }
+      const averages = indicators.map(([key, label]) => {
+        const average = rows.reduce((total, row) => total + Number(row[key] || 0), 0) / rows.length;
+        const level = levelFor(average);
+        const card = document.createElement('article');
+        card.className = 'metric';
+        card.innerHTML = `<p class="name">${escapeHtml(label)}</p><p class="percentage">${average.toFixed(1)}%</p><span class="level ${level.css}">${level.name}</span>`;
+        summary.appendChild(card);
+        return { key, label, average };
+      });
+      const belowThreshold = averages.filter((item) => item.average < 80).sort((a, b) => a.average - b.average);
+      decision.style.display = 'block';
+      if (!belowThreshold.length) {
+        decision.innerHTML = '<strong>Decisión sugerida:</strong> Todos los indicadores alcanzan al menos el 80%. Realice un repaso general y puede avanzar a nuevos contenidos.';
+      } else {
+        const priority = belowThreshold.slice(0, 3).map((item) => `${escapeHtml(item.label)} (${item.average.toFixed(1)}%)`).join(', ');
+        decision.innerHTML = `<strong>Decisión sugerida:</strong> Priorice el refuerzo de: ${priority}. Los indicadores por debajo del 80% requieren práctica adicional.`;
+      }
+    }
+
+    function objectiveStatus(answer) {
+      if (answer.requiere_revision_manual) {
+        return answer.estado_revision_manual === 'pendiente_revision'
+          ? '<span class="manual-pending">Pendiente de revisión manual</span>'
+          : 'Incompleta: se considera incorrecta';
+      }
+      return answer.correccion_automatica ? 'Correcta automáticamente' : 'Incorrecta automáticamente';
+    }
+
+    function renderResponses(rows) {
+      const container = document.getElementById('responses');
+      if (!rows.length) {
+        container.innerHTML = '<div class="empty">Las respuestas aparecerán aquí cuando un estudiante envíe el formulario.</div>';
+        return;
+      }
+      container.innerHTML = rows.map((row) => {
+        const resultRows = indicators.map(([key, label]) => {
+          const value = Number(row[key] || 0);
+          const level = levelFor(value);
+          return `<tr><td>${escapeHtml(label)}</td><td>${value.toFixed(1)}%</td><td><span class="level ${level.css}">${level.name}</span></td></tr>`;
+        }).join('');
+        const rawAnswers = row.respuestas_crudas?.respuestas || {};
+        const answers = Object.keys(rawAnswers).sort((a, b) => Number(a.replace('pregunta_', '')) - Number(b.replace('pregunta_', ''))).map((key) => {
+          const answer = rawAnswers[key];
+          const response = answer.respuesta ? escapeHtml(answer.respuesta) : '<em>Sin respuesta</em>';
+          return `<li class="answer"><small>Pregunta ${escapeHtml(answer.numero)} · ${escapeHtml(answer.indicador)} · ${objectiveStatus(answer)}</small><p><strong>Enunciado:</strong> ${escapeHtml(answer.enunciado)}</p><p><strong>Respuesta:</strong> ${response}</p></li>`;
+        }).join('') || '<li class="answer">No se encontraron respuestas crudas para este registro.</li>';
+        return `<article class="response">
+          <div class="response-head"><div><h3>${escapeHtml(row.nombre_estudiante)}</h3><p>${escapeHtml(row.cohorte)} · ${formatDate(row.fecha_hora)}</p></div></div>
+          <table><thead><tr><th>Indicador</th><th>Resultado automático</th><th>Nivel</th></tr></thead><tbody>${resultRows}</tbody></table>
+          <details><summary>Ver las 30 respuestas y el estado de revisión</summary><ul class="answer-list">${answers}</ul></details>
+        </article>`;
+      }).join('');
+    }
+
+    async function loadResults() {
+      if (SUPABASE_URL.includes('TU-PROYECTO') || SUPABASE_ANON_KEY.includes('TU_SUPABASE')) {
+        showMessage('Antes de ver resultados, reemplace la URL y la anon key de Supabase en este archivo.', 'show');
+        document.getElementById('summary').innerHTML = '<div class="empty">Falta configurar Supabase.</div>';
+        document.getElementById('responses').innerHTML = '';
+        return;
+      }
+      const button = document.getElementById('refresh');
+      button.disabled = true;
+      button.textContent = 'Actualizando…';
+      try {
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${TABLE_NAME}?select=*&order=fecha_hora.desc`;
+        const response = await fetch(url, { headers:{ 'apikey':SUPABASE_ANON_KEY } });
+        if (!response.ok) throw new Error(await response.text());
+        const rows = await response.json();
+        document.getElementById('message').className = '';
+        renderSummary(rows);
+        renderResponses(rows);
+      } catch (error) {
+        console.error(error);
+        showMessage('No se pudieron cargar los resultados. Revise la URL, la anon key y la política de lectura de Supabase.', 'error');
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Actualizar datos';
+      }
+    }
+
+    document.getElementById('refresh').addEventListener('click', loadResults);
+    loadResults();
+  </script>
+</body>
+</html>
