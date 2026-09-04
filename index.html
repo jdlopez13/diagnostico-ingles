@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Examen de Inglés Básico</title>
+  <style>
+    :root { --ink:#1e293b; --blue:#2563eb; --blue-soft:#eff6ff; --line:#cbd5e1; --muted:#64748b; --danger:#b91c1c; --danger-soft:#fee2e2; --ok:#166534; --ok-soft:#dcfce7; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f8fafc; color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { max-width:920px; margin:0 auto; padding:32px 18px 56px; }
+    h1 { margin:0 0 6px; font-size:clamp(1.75rem,4vw,2.4rem); }
+    h2 { margin:0; font-size:1.2rem; }
+    .intro, .notice { color:var(--muted); margin:0 0 24px; }
+    .notice { background:#fffbeb; border-left:4px solid #f59e0b; padding:12px 14px; border-radius:4px; }
+    .student-data, .block, #results { background:white; border:1px solid var(--line); border-radius:12px; padding:22px; margin-bottom:20px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+    .student-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    label { display:block; font-weight:650; margin-bottom:6px; }
+    input { width:100%; border:1px solid #94a3b8; border-radius:7px; padding:10px 11px; font:inherit; color:var(--ink); background:white; }
+    input:focus { outline:3px solid #bfdbfe; border-color:var(--blue); }
+    .block-header { display:flex; justify-content:space-between; gap:12px; align-items:baseline; border-bottom:1px solid #e2e8f0; padding-bottom:10px; margin-bottom:4px; }
+    .badge { background:var(--blue-soft); color:#1d4ed8; padding:3px 8px; border-radius:999px; font-size:.82rem; white-space:nowrap; }
+    .question { padding:17px 0; border-bottom:1px solid #e2e8f0; }
+    .question:last-child { border-bottom:0; padding-bottom:0; }
+    .question p { margin:0 0 9px; }
+    .question-number { color:var(--blue); font-weight:750; }
+    .kind { color:var(--muted); font-size:.9rem; }
+    .feedback { display:none; margin-top:9px; padding:9px 11px; border-radius:7px; font-size:.92rem; font-weight:650; }
+    .question.correct input { border-color:#22c55e; background:#f0fdf4; }
+    .question.correct .feedback { display:block; background:var(--ok-soft); color:var(--ok); }
+    .question.incorrect input { border-color:#ef4444; background:#fef2f2; }
+    .question.incorrect .feedback { display:block; background:var(--danger-soft); color:var(--danger); }
+    button { width:100%; border:0; border-radius:8px; padding:13px 18px; background:var(--blue); color:white; font:700 1rem system-ui,sans-serif; cursor:pointer; }
+    button:hover { background:#1d4ed8; }
+    button:disabled { opacity:.65; cursor:wait; }
+    #status { display:none; margin-top:16px; padding:13px 14px; border-radius:8px; font-weight:600; }
+    #status.success { display:block; background:var(--ok-soft); color:var(--ok); }
+    #status.error { display:block; background:var(--danger-soft); color:var(--danger); }
+    #results { display:none; border-color:#93c5fd; }
+    #results.show { display:block; }
+    .result-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-top:16px; }
+    .result-card { border:1px solid var(--line); border-radius:9px; padding:14px; }
+    .result-card p { margin:0; }
+    .result-card .score { font-size:1.6rem; font-weight:800; margin-top:5px; }
+    .result-card .level { color:var(--muted); font-size:.88rem; }
+    @media (max-width:640px) { main { padding-top:24px; } .student-grid, .result-grid { grid-template-columns:1fr; } .block-header { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Examen de Inglés Básico</h1>
+    <p class="intro">Responda las 15 preguntas sobre Present Simple, Present Continuous y Past Simple. Al enviar, verá inmediatamente si cada respuesta fue correcta y su resultado por tema.</p>
+    <p class="notice">Todas las preguntas tienen corrección automática. Las respuestas en blanco se consideran incorrectas.</p>
+
+    <form id="diagnostic-form" novalidate>
+      <section class="student-data" aria-labelledby="student-heading">
+        <h2 id="student-heading">Datos del estudiante</h2>
+        <div class="student-grid">
+          <div><label for="nombre_estudiante">Nombre completo</label><input id="nombre_estudiante" name="nombre_estudiante" autocomplete="name" required></div>
+          <div><label for="cohorte">Cohorte o grupo</label><input id="cohorte" name="cohorte" placeholder="Ej.: A1 - Grupo 1" required></div>
+        </div>
+      </section>
+
+      <div id="questions"></div>
+      <button id="submit-button" type="submit">Enviar examen y ver retroalimentación</button>
+      <div id="status" role="status" aria-live="polite"></div>
+    </form>
+
+    <section id="results" aria-live="polite" aria-labelledby="results-heading">
+      <h2 id="results-heading">Resultado inmediato</h2>
+      <p class="intro">Revise abajo cada respuesta marcada en verde o rojo.</p>
+      <div id="result-summary" class="result-grid"></div>
+    </section>
+  </main>
+
+  <script>
+    // Reemplace estos dos valores por los datos de Settings > API de su proyecto Supabase.
+    // La URL termina en .supabase.co: no agregue /rest/v1.
+    const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
+    const SUPABASE_ANON_KEY = 'TU_SUPABASE_ANON_KEY';
+    const TABLE_NAME = 'respuestas_diagnostico';
+
+    // Cinco preguntas cerradas y autocorregibles por cada tema.
+    const questions = [
+      { n:1, indicator:'present_simple', title:'Complete the sentence.', prompt:'Maria ___ (work) in a hospital.', answers:['works'], placeholder:'Write one word' },
+      { n:2, indicator:'present_simple', title:'Correct the mistake.', prompt:"He don't like coffee.", answers:["he doesn't like coffee", 'he does not like coffee'], placeholder:'Write the corrected sentence' },
+      { n:3, indicator:'present_simple', title:'Complete the question.', prompt:'___ she ___ (work) on Saturdays?', answers:['does work'], placeholder:'Write the two missing words' },
+      { n:4, indicator:'present_simple', title:'Correct the mistake.', prompt:"They doesn't study English on Fridays.", answers:["they don't study english on fridays", 'they do not study english on fridays'], placeholder:'Write the corrected sentence' },
+      { n:5, indicator:'present_simple', title:'Complete the sentence.', prompt:'My father ___ (watch) TV every day.', answers:['watches'], placeholder:'Write one word' },
+
+      { n:6, indicator:'present_continuous', title:'Complete the sentence.', prompt:'Look! The children ___ (play) in the park.', answers:['are playing'], placeholder:'Write the missing words' },
+      { n:7, indicator:'present_continuous', title:'Correct the mistake.', prompt:'I am study English right now.', answers:['i am studying english right now'], placeholder:'Write the corrected sentence' },
+      { n:8, indicator:'present_continuous', title:'Complete the question.', prompt:'What ___ you ___ (do) right now?', answers:['are doing'], placeholder:'Write the two missing words' },
+      { n:9, indicator:'present_continuous', title:'Correct the mistake.', prompt:"He isn't wear a jacket today.", answers:["he isn't wearing a jacket today", 'he is not wearing a jacket today'], placeholder:'Write the corrected sentence' },
+      { n:10, indicator:'present_continuous', title:'Complete the sentence.', prompt:'She ___ (cook) dinner now.', answers:['is cooking'], placeholder:'Write the missing words' },
+
+      { n:11, indicator:'past_simple', title:'Complete the sentence.', prompt:'Yesterday, I ___ (go) to the supermarket.', answers:['went'], placeholder:'Write one word' },
+      { n:12, indicator:'past_simple', title:'Correct the mistake.', prompt:"She didn't went to class yesterday.", answers:["she didn't go to class yesterday", 'she did not go to class yesterday'], placeholder:'Write the corrected sentence' },
+      { n:13, indicator:'past_simple', title:'Complete the question.', prompt:'What time ___ you ___ up yesterday?', answers:['did get'], placeholder:'Write the two missing words' },
+      { n:14, indicator:'past_simple', title:'Correct the mistake.', prompt:'We goed to the cinema last night.', answers:['we went to the cinema last night'], placeholder:'Write the corrected sentence' },
+      { n:15, indicator:'past_simple', title:'Complete the sentence.', prompt:'Last weekend, they ___ (visit) their grandparents.', answers:['visited'], placeholder:'Write one word' }
+    ];
+
+    const indicatorNames = { present_simple:'Present Simple', present_continuous:'Present Continuous', past_simple:'Past Simple' };
+
+    function normalise(value) {
+      return value.toLowerCase().trim().replace(/[¿?¡!.,;:]/g, '').replace(/[‘’]/g, "'").replace(/\s+/g, ' ');
+    }
+
+    function isCorrect(question, response) {
+      const answer = normalise(response);
+      return answer !== '' && question.answers.some((correctAnswer) => answer === normalise(correctAnswer));
+    }
+
+    function renderQuestions() {
+      const container = document.getElementById('questions');
+      Object.keys(indicatorNames).forEach((indicator) => {
+        const section = document.createElement('section');
+        section.className = 'block';
+        section.innerHTML = `<div class="block-header"><h2>${indicatorNames[indicator]}</h2><span class="badge">5 preguntas</span></div>`;
+        questions.filter((question) => question.indicator === indicator).forEach((question) => {
+          const item = document.createElement('div');
+          item.className = 'question';
+          item.id = `question-${question.n}`;
+          item.innerHTML = `<p><span class="question-number">${question.n}.</span> <span class="kind">${question.title}</span></p><p>${question.prompt}</p><input id="q${question.n}" name="q${question.n}" placeholder="${question.placeholder}" autocomplete="off"><div class="feedback" id="feedback-${question.n}"></div>`;
+          section.appendChild(item);
+        });
+        container.appendChild(section);
+      });
+    }
+
+    function evaluateExam() {
+      const responses = {};
+      const scores = {};
+      questions.forEach((question) => {
+        const response = document.getElementById(`q${question.n}`).value.trim();
+        const correct = isCorrect(question, response);
+        responses[`pregunta_${question.n}`] = { numero:question.n, indicador:question.indicator, enunciado:question.prompt, respuesta:response, correccion_automatica:correct, respuesta_esperada:question.answers[0], requiere_revision_manual:false, estado_revision_manual:'no_aplica' };
+      });
+      Object.keys(indicatorNames).forEach((indicator) => {
+        const topicQuestions = questions.filter((question) => question.indicator === indicator);
+        const correctCount = topicQuestions.filter((question) => responses[`pregunta_${question.n}`].correccion_automatica).length;
+        scores[indicator] = (correctCount / topicQuestions.length) * 100;
+      });
+      return { responses, scores };
+    }
+
+    function levelFor(score) {
+      if (score >= 80) return 'Consolidado';
+      if (score >= 50) return 'En desarrollo';
+      return 'Inicial';
+    }
+
+    function showFeedback(evaluation) {
+      questions.forEach((question) => {
+        const answer = evaluation.responses[`pregunta_${question.n}`];
+        const questionElement = document.getElementById(`question-${question.n}`);
+        const feedback = document.getElementById(`feedback-${question.n}`);
+        questionElement.classList.remove('correct', 'incorrect');
+        questionElement.classList.add(answer.correccion_automatica ? 'correct' : 'incorrect');
+        feedback.textContent = answer.correccion_automatica ? 'Correcta.' : `Incorrecta. Respuesta esperada: ${answer.respuesta_esperada}.`;
+      });
+      document.getElementById('result-summary').innerHTML = Object.entries(indicatorNames).map(([indicator, label]) => {
+        const score = evaluation.scores[indicator];
+        return `<article class="result-card"><p>${label}</p><p class="score">${score.toFixed(0)}%</p><p class="level">${levelFor(score)}</p></article>`;
+      }).join('');
+      document.getElementById('results').classList.add('show');
+    }
+
+    function calculatePayload(evaluation) {
+      return {
+        nombre_estudiante: document.getElementById('nombre_estudiante').value.trim(),
+        cohorte: document.getElementById('cohorte').value.trim(),
+        // Valores de compatibilidad para las columnas de la versión anterior del MVP.
+        to_be:0, have_has:0, frequency_adverbs:0, there_prepositions:0, can_cant:0, comparatives:0, future:0,
+        ...evaluation.scores,
+        respuestas_crudas: {
+          version_instrumento:'MVP-3-examen-autocorregible-15-preguntas',
+          fecha_hora_cliente:new Date().toISOString(),
+          nota_calificacion:'Las 15 preguntas fueron corregidas automáticamente al enviar el examen.',
+          mapa_pregunta_indicador:Object.fromEntries(questions.map((question) => [`pregunta_${question.n}`, question.indicator])),
+          respuestas:evaluation.responses
+        }
+      };
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = type;
+    }
+
+    document.getElementById('diagnostic-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const name = document.getElementById('nombre_estudiante').value.trim();
+      const cohort = document.getElementById('cohorte').value.trim();
+      if (!name || !cohort) { showStatus('Escriba el nombre completo y la cohorte antes de enviar.', 'error'); return; }
+
+      const evaluation = evaluateExam();
+      showFeedback(evaluation);
+      document.getElementById('results').scrollIntoView({ behavior:'smooth', block:'start' });
+
+      if (SUPABASE_URL.includes('TU-PROYECTO') || SUPABASE_ANON_KEY.includes('TU_SUPABASE')) {
+        showStatus('La retroalimentación ya está disponible arriba. Para guardar el resultado, reemplace la URL y la clave pública de Supabase.', 'error');
+        return;
+      }
+
+      const button = document.getElementById('submit-button');
+      button.disabled = true;
+      button.textContent = 'Guardando resultado…';
+      try {
+        const response = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${TABLE_NAME}`, {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Prefer':'return=minimal' },
+          body:JSON.stringify(calculatePayload(evaluation))
+        });
+        if (!response.ok) throw new Error(await response.text());
+        showStatus('Resultado guardado correctamente en Supabase. La retroalimentación aparece arriba.', 'success');
+        button.textContent = 'Resultado enviado';
+      } catch (error) {
+        console.error(error);
+        showStatus('La retroalimentación está disponible arriba, pero no se pudo guardar el resultado. Revise la URL, la clave pública y las políticas de Supabase.', 'error');
+        button.disabled = false;
+        button.textContent = 'Reintentar guardar resultado';
+      }
+    });
+
+    renderQuestions();
+  </script>
+</body>
+</html>
